@@ -131,7 +131,7 @@ class DQN:
                 episode_reward, steps_since_reward, self.rndint = 0,0,0
                 
                 self.env.reset()
-                [self.env.step(self.drive(0)) for i in range(20)]
+                [self.env.step(self.drive(0)) for i in range(40)]
                 
                 s,_,_,_ = self.env.step(self.drive(0))
                 s = self.preprocess_image(s)
@@ -188,6 +188,6 @@ except OSError:
 #model.compile(loss="mse", optimizer=keras.optimizers.Adam(lr=0.001))
 env = gym.make("CarRacing-v0")
 
-dqn = DQN(model, env, expl_max=0.0, expl_min=0.0, expl_decay=0.99, gamma=0.8, exp_iterations=10)
+dqn = DQN(model, env, expl_max=0.1, expl_min=0.0, expl_decay=0.99, gamma=0.95, exp_iterations=10)
 
 dqn.train()
