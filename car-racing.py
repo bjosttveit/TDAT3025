@@ -1,7 +1,7 @@
 from collections import deque
 import random
 import time
-
+import matplotlib.pyplot as plt
 import tensorflow as tf
 import gym
 import numpy as np
@@ -42,6 +42,7 @@ class DQN:
         self.expl_decay = expl_decay
         self.expl_rate = expl_max
         self.steps = 0
+        self.addReward = []
 
     def train(self):
         try:
@@ -58,7 +59,6 @@ class DQN:
                     drive = self.drive(a)
                     sn, r, d, _ = self.env.step(drive)
                     tot_r += r
-                    
                     if r > 0:
                         tsr = 0
                     else:
@@ -71,8 +71,15 @@ class DQN:
                     s = sn
                     self.experience_replay()
                 print("Reward",tot_r)
+                self.addReward.append(tot_r)
         except KeyboardInterrupt:
             self.model.save_weights("model.h5")
+
+    def plotReward(self):
+        plt.plot(self.addReward)
+        plt.ylabel('reward')
+        plt.xlabel('number of episodes')
+        plt.show()
     
     def experience_replay(self):
         if len(self.memory) < 1280 or self.steps % self.batch_size != 0:
@@ -147,3 +154,4 @@ env = gym.make("CarRacing-v0")
 dqn = DQN(model, env, expl_min=0.01, expl_max=0.9, expl_decay=0.95)
 
 dqn.train()
+dqn.plotReward()
