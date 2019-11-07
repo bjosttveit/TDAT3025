@@ -183,9 +183,9 @@ class DQN:
                         steps_since_reward = 0
                     else:
                         steps_since_reward += 1
-                    if steps_since_reward > 15:
+                    if steps_since_reward > 20:
                         d = True
-                        r -= 30
+                        #r -= 30
 
                     sn = self.preprocess_image(sn)
                     sn = tf.concat((sn,tf.split(s,3,-1)[0][0],tf.split(s,3,-1)[1][0]),-1)
@@ -209,13 +209,13 @@ class DQN:
                 print("Reward",episode_reward)
                 self.experience_replay()
         except KeyboardInterrupt:
-            self.model.save_weights("model4.h5")
+            self.model.save_weights("model5.h5")
 
 
 model = TokyoDrifter()
 
 try:
-    model.load_weights("model4.h5")
+    model.load_weights("model5.h5")
 except OSError:
     pass
 
