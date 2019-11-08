@@ -47,6 +47,7 @@ class DQN:
         self.rndact = 0
         self.rndint = 0
         self.actint = 0
+        self.addReward = []
 
     def action(self, q_values):
         if self.actint > 0:
@@ -208,8 +209,15 @@ class DQN:
                 self.memory.extend(np.transpose(episode_memory))
                 print("Reward",episode_reward)
                 self.experience_replay()
+                self.addReward.append(episode_reward)
         except KeyboardInterrupt:
             self.model.save_weights("model5.h5")
+
+    def plotReward(self):
+        plt.plot(self.addReward)
+        plt.ylabel('reward')
+        plt.xlabel('number of episodes')
+        plt.show()
 
 
 model = TokyoDrifter()
@@ -225,3 +233,4 @@ env = gym.make("CarRacing-v0")
 dqn = DQN(model, env, expl_max=0.2, expl_min=0.01, expl_decay=0.995, gamma=0.99, exp_iterations=3)
 
 dqn.train()
+dqn.plotReward()
