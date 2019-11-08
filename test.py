@@ -1,8 +1,10 @@
 import gym
 import tensorflow as tf
+from collections import deque
 from tensorflow.keras import layers, models
 import random
 import numpy as np
+from tensorflow import keras
 from tensorflow_core.python.keras.optimizers import Adam
 
 env = gym.make("CarRacing-v0").env
@@ -21,76 +23,186 @@ EXPLORATION_MAX = 1.0
 EXPLORATION_MIN = 0.01
 EXPLORATION_DECAY = 0.995
 
+class Hamilton(keras.Model):
+    def __init__(self, **kwargs):
+        super(Hamilton, self).__init__(**kwargs)
+        self.conv1 = layers.Conv2D(128, (4, 4), activation='relu')
+        self.pool1 = layers.MaxPool2D(6, 6)
+        self.flatten = layers.Flatten()
+        self.dense1 = layers.Dense(32, activation='relu')
+        self.dense2 = layers.Dense(7, activation='linear')
+        
+        self.build((None,24,24,2))
+    
+    def call(self, x):
+        x = self.conv1(x)
+        x = self.pool1(x)
+        x = self.flatten(x)
+        x = self.dense1(x)
+        return self.dense2(x)
+
+
 class DQN:
-   def __init__(self, observation_space, action_space):
-       self.exploration_rate = EXPLORATION_MAX
-       self.model = models.Sequential()
-       self.model.add(layers.Conv2D(96, (3, 3), activation='relu', input_shape=(96, 96, 3))) # (96,96,3)
-       self.model.add(layers.MaxPooling2D((2, 2)))
-       self.model.add(layers.Conv2D(192, (3, 3), activation='relu'))
-       self.model.add(layers.MaxPooling2D((2, 2)))
-       self.model.add(layers.Conv2D(192, (3, 3), activation='relu'))
-       self.model.add(layers.Flatten())
-       self.model.add(layers.Dense(64, activation='relu'))
-       self.model.add(layers.Dense(10, activation='softmax'))
-       self.model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', lr=LEARNING_RATE) #, metrics=['accuracy']
-       self.model.summary()
+   def __init__(self, model, env, gamma=0.95, optimizer=keras.optimizers.Adam(lr=0.01), lossfunc=keras.losses.MSE, exp_iterations=5, mem_size=128*5, batch_size=128, expl_max=1.0, expl_min=0.01, expl_decay=0.95):
+        self.model = model
+        self.env = env
+        self.memory = deque(maxlen=mem_size)
+        self.weights = deque(maxlen=mem_size)
+        self.gamma = gamma
+        self.optimizer = optimizer
+        self.lossfunc = lossfunc
+        self.exp_iterations = exp_iterations
+        self.batch_size = batch_size
+        self.expl_max = expl_max
+        self.expl_min = expl_min
+        self.expl_decay = expl_decay
+        self.expl_rate = expl_max
+        self.steps = 0
+        self.rndact = 0
+        self.rndint = 0
+        self.actint = 0
 
-   def remember(self, state, action, reward, next_state, done):
-       self.memory.append((state, action, reward, next_state, done))
+   def action(self, q_values):
+        if self.actint > 0:
+            self.actint += 1
+            if self.actint > 2: self.actint = 0
+            return np.argmax(q_values)
+        
+        if self.rndint > 0:
+            self.rndint += 1
+            if self.rndint > 2: self.rndint = 0
+            return self.rndact
+        
+        if np.random.rand() < self.expl_rate:
+            self.rndint = 1
+            m = 7 #I starten vil tilfeldig valg være begrenset
+            #if self.expl_rate > 0.9: m = 2
+            #elif self.expl_rate > 0.5: m = 4
+            #elif self.expl_rate > 0.1: m = 6
+            self.rndact = random.randrange(1,6) #tilfeldig er aldri å gjøre ingenting
+            return self.rndact
+        else:
+            self.actint = 1
+        return np.argmax(q_values)
 
-   def act(self, state):
-        if np.random.rand() < self.exploration_rate:
-            return self.randomState()
-        q_values = self.model.predict(state)
-        return np.argmax(q_values[0])
-
-   def randomState(self):
-       return np.array([random.uniform(-1,1),random.uniform(0,1), random.uniform(0,1)])
-
+   def drive(self, a):
+        if a == 1: #Full gass
+            return [0.0,1.0,0.0]
+        elif a == 2: #Full gass og sving høyre
+            return [1.0,1.0,0.0]
+        elif a == 3: #Full gass og sving venstre
+            return [-1.0,1.0,0.0]
+        elif a == 4: #Sving høyre
+            return [1.0,0.0,0.0]
+        elif a == 5: #Sving venstre
+            return [-1.0,0.0,0.0]
+        elif a == 6: #Full brems
+            return [0.0,0.0,0.5]
+        else: #a==0 Gjør ingenting
+            return [0.0,0.0,0.0]
+    
    def experience_replay(self):
-       if len(self.memory) < BATCH_SIZE:
-           return
-       batch = random.sample(self.memory, BATCH_SIZE)
-       for state, action, reward, state_next, done in batch:
-           q_update = reward
-           if not done:
-               q_update = (reward + GAMMA * np.amax(self.model.predict(state_next)[0]))
-           q_values = self.model.predict(state)
-           q_values[0][action] = q_update
-           self.model.fit(state, q_values, verbose=0)
-       self.exploration_rate *= EXPLORATION_DECAY
-       self.exploration_rate = max(EXPLORATION_MIN, self.exploration_rate)
+        if self.steps < self.batch_size:
+            return
+        print("Training on",self.batch_size,"samples for",self.exp_iterations,"epochs.","Current exploration rate",self.expl_rate)
+        self.steps = 0
+        
+        avg_loss = 0
+        for i in range(self.exp_iterations):
+            batch = random.choices(self.memory,k=self.batch_size)#, weights=self.weights)
+            x = np.array([b[0] for b in batch])
+            x2 = np.array([b[4] for b in batch])
+            modx2 = self.model(x2)
 
-#env.observation_space
-#dqn = DQN(env.observation_space, env.action_space)
-def cartpole():
-    env = gym.make(ENV_NAME)
-    #score_logger = ScoreLogger(ENV_NAME)
-    observation_space = env.observation_space.shape[0]
-    action_space = env.action_space
-    dqn_solver = DQN(observation_space, action_space)
-    run = 0
-    while True:
-        run += 1
-        state = env.reset()
-        print(state)
-        state = np.reshape(state, [1, observation_space])
-        step = 0
-        while True:
-            step += 1
-            env.render()
-            action = dqn_solver.act(state)
-            state_next, reward, terminal, info = env.step(action)
-            reward = reward if not terminal else -reward
-            state_next = np.reshape(state_next, [1, observation_space])
-            dqn_solver.remember(state, action, reward, state_next, terminal)
-            state = state_next
-            if terminal:
-                print ("Run: " + str(run) + ", exploration: " + str(dqn_solver.exploration_rate) + ", score: " + str(step))
-                #score_logger.add_score(step, run)
-                break
-            dqn_solver.experience_replay()
+            with tf.GradientTape() as t:
+                modx = self.model(x)
+                y = []
+                for j in range(len(batch)):
+                    q_update = modx[j].numpy()
+                    if not batch[j][5]:
+                        q_update[batch[j][2]] = batch[j][3] + np.max(modx2[j]*self.gamma)
+                    else:
+                        q_update[batch[j][2]] = batch[j][3]
 
-cartpole()
+                    y.append(q_update)
+                current_loss = self.lossfunc(modx, y)
+            grads = t.gradient(current_loss, self.model.trainable_variables)
+            self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+            avg_loss += tf.reduce_mean(current_loss)/self.exp_iterations
+        
+        self.expl_rate = max(self.expl_min, self.expl_rate*self.expl_decay)
+        tf.print("Average loss:",avg_loss)
+
+   def preprocess_image(self, x):
+        x = tf.image.rgb_to_grayscale(x)
+        return tf.image.resize(x,(24,24),method="bilinear")
+    
+   def train(self):
+        try:
+            while True:
+                episode_reward, steps_since_reward, self.rndint = 0,0,0
+                
+                self.env.reset()
+                [self.env.step(self.drive(0)) for i in range(40)]
+                
+                s,_,_,_ = self.env.step(self.drive(0))
+                s = self.preprocess_image(s)
+                s = tf.concat((s,s), -1)
+                s = np.array(s[None, :], dtype=np.float32)
+                d = False
+                episode_memory = [[],[],[],[],[],[]]
+                while not d:
+                    self.steps += 1
+                    self.env.render()
+
+                    q_values = self.model(s)
+                    a = self.action(q_values)
+
+                    sn, r, d, _ = self.env.step(self.drive(a))
+                    episode_reward += r
+                    
+                    if r > 0:
+                        steps_since_reward = 0
+                    else:
+                        steps_since_reward += 1
+                    if steps_since_reward > 15:
+                        d = True
+                        r -= 50
+
+                    sn = self.preprocess_image(sn)
+                    sn = tf.concat((sn,tf.split(s,2,-1)[0][0]),-1)
+                    sn = np.array(sn[None, :], dtype=np.float32)
+
+                    episode_memory[0].append(s[0])
+                    episode_memory[1].append(q_values[0][a])
+                    episode_memory[2].append(a)
+                    episode_memory[3].append(r)
+                    episode_memory[4].append(sn[0])
+                    episode_memory[5].append(d)
+
+                    s = sn
+                
+                #for i in range(len(episode_memory[0])):
+                    #self.weights.append(np.sqrt(np.power(episode_memory[3][i]-episode_memory[1][i], 2)))
+
+                self.memory.extend(np.transpose(episode_memory))
+                print("Reward",episode_reward)
+                self.experience_replay()
+        except KeyboardInterrupt:
+            self.model.save_weights("model4.h5")
+
+
+model = Hamilton()
+
+try:
+    model.load_weights("model4.h5")
+except OSError:
+    pass
+
+#model.compile(loss="mse", optimizer=keras.optimizers.Adam(lr=0.001))
+env = gym.make("CarRacing-v0")
+
+dqn = DQN(model, env, expl_max=0.2, expl_min=0.0, expl_decay=0.99, gamma=0.95, exp_iterations=10)
+
+dqn.train()
 
