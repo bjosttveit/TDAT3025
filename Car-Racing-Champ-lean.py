@@ -1,6 +1,7 @@
 from collections import deque
 import random
 import time
+import os
 import datetime
 
 import matplotlib.pyplot as plt
@@ -44,6 +45,7 @@ class DQN:
         self.exp_iterations = exp_iterations
         self.frames=frames
         self.save_interval = save_interval
+        self.save_n = 0
         self.batch_size = batch_size
         self.expl_max = expl_max
         self.expl_min = expl_min
@@ -52,6 +54,7 @@ class DQN:
         self.steps = 0
         self.rewards = []
         self.explorerates = []
+        self.avg_loss = []
 
     def action(self, q_values):
         if np.random.rand() < self.expl_rate:
@@ -101,6 +104,7 @@ class DQN:
 
         
         self.expl_rate = max(self.expl_min, self.expl_rate*self.expl_decay)
+        self.avg_loss.append(avg_loss)
         tf.print("Average loss:",avg_loss)
 
     def update_weights(self, batch=None):
@@ -143,6 +147,9 @@ class DQN:
     def train(self):
         try:
             self.starttime = time.time()
+            self.name = datetime.datetime.now().strftime("%d-%m-%Y %H-%M-%S")
+            os.mkdir(os.path.join("./", self.name))
+
             while True:
                 episode_reward, steps_since_reward = 0,0
                 
@@ -192,11 +199,43 @@ class DQN:
                 self.rewards.append(episode_reward)
                 self.explorerates.append(self.expl_rate)
                 self.experience_replay()
-        except KeyboardInterrupt:
-            self.time = (time.time() - self.starttime)/3600
-            self.done = datetime.datetime.now().strftime("%d-%m-%Y %H-%M-%S")
-            self.model.save_weights("model %s %.2f.h5" % (self.done, self.time))
 
+                if (time.time() - self.starttime) / 60 - self.save_interval*self.save_n > self.save_interval:
+                    self.save()
+                    self.save_n += 1
+
+        except KeyboardInterrupt:
+            self.save()
+
+    def save(self):
+        print("Saving model and plots...")
+
+        elapsed = (time.time() - self.starttime)/3600
+        timestring = datetime.datetime.now().strftime("%d-%m-%Y %H-%M-%S")
+        self.model.save_weights(os.path.join("./",self.name,"model %s %.2f.h5" % (timestring, elapsed)))
+
+        avg_rewards = pd.DataFrame(self.rewards).rolling(25, min_periods=1).mean()
+        plt.plot(avg_rewards)
+        plt.ylabel('Rolling average reward')
+        plt.xlabel('Episode')
+        plt.savefig(os.path.join("./",self.name,'reward %s %.2f.png' % (timestring, elapsed)))
+
+        plt.clf()
+
+        plt.plot(self.explorerates)
+        plt.ylabel('Exploration rate')
+        plt.xlabel('Episode')
+        plt.savefig(os.path.join("./",self.name,'explore %s %.2f.png' % (timestring, elapsed)))
+
+        plt.clf()
+
+        plt.plot(self.avg_loss)
+        plt.ylabel('Average loss')
+        plt.xlabel('Episode')
+        plt.savefig(os.path.join("./",self.name,'loss %s %.2f.png' % (timestring, elapsed)))
+
+        plt.clf()
+    
     def test(self):
         try:
             while True:
@@ -237,22 +276,6 @@ class DQN:
         except KeyboardInterrupt:
             pass
 
-    def plotReward(self):
-        avg_rewards = pd.DataFrame(self.rewards).rolling(25, min_periods=1).mean()
-        plt.plot(avg_rewards)
-        plt.ylabel('Rolling average reward')
-        plt.xlabel('Number of episodes')
-        plt.savefig('reward %s %.2f.png' % (self.done, self.time))
-
-        plt.clf()
-
-        plt.plot(self.explorerates)
-        plt.ylabel('Exploration rate')
-        plt.xlabel('Number of episodes')
-        plt.savefig('explore %s %.2f.png' % (self.done, self.time))
-
-
-
 
 test = False
 
@@ -263,10 +286,9 @@ env = gym.make("CarRacing-v0")
 if test:
     model.load_weights("model xxx.h5")
 
-dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=3)
+dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=3, save_interval=5)
 
 if test:
     dqn.test()
 else:
     dqn.train()
-    dqn.plotReward()
