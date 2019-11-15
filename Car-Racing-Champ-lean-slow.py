@@ -63,11 +63,11 @@ class DQN:
 
     def drive(self, a):
         if a == 1: #Full gass
-            return [0.0,0.5,0.0]
+            return [0.0,0.25,0.0]
         elif a == 2: #Full gass og sving høyre
-            return [1.0,0.5,0.0]
+            return [1.0,0.25,0.0]
         elif a == 3: #Full gass og sving venstre
-            return [-1.0,0.5,0.0]
+            return [-1.0,0.25,0.0]
         else: #a == 0: #Gjør ingenting
             return [0.0,0.0,0.0]
     
