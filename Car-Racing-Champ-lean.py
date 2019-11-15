@@ -230,6 +230,7 @@ class DQN:
         plt.clf()
 
         plt.plot(self.avg_loss)
+        plt.yscale("log")
         plt.ylabel('Average loss')
         plt.xlabel('Episode')
         plt.savefig(os.path.join("./",self.name,'loss %s %.2f.png' % (timestring, elapsed)))
