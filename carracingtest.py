@@ -185,21 +185,18 @@ class DQN:
                 self.experience_replay()
                 self.addReward.append(episode_reward)
         except KeyboardInterrupt:
-            self.model.save_weights("model-test.h5")
+            self.model.save_weights("model6.h5")
 
     def plotReward(self):
         plt.plot(self.addReward)
         plt.ylabel('reward')
         plt.xlabel('number of episodes')
-        plt.show()
+        #plt.show()
 
 
 model = TokyoDrifter()
 
-try:
-    model.load_weights("model-test.h5")
-except OSError:
-    pass
+model.load_weights("model6.h5")
 
 env = gym.make("CarRacing-v0")
 

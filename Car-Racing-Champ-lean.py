@@ -1,8 +1,10 @@
 from collections import deque
 import random
 import time
+import datetime
 
 import matplotlib.pyplot as plt
+import pandas as pd
 import tensorflow as tf
 import gym
 import numpy as np
@@ -11,15 +13,17 @@ from tensorflow.keras import layers
 
 
 class TokyoDrifter(keras.Model):
-    def __init__(self, **kwargs):
+    def __init__(self, frames=5, **kwargs):
         super(TokyoDrifter, self).__init__(**kwargs)
-        self.conv1 = layers.Conv2D(128, (4, 4), activation='relu')
+        self.conv1 = layers.Conv2D(64, (5, 5), activation='relu')
+        self.pool1 = layers.MaxPool2D(2, 2)
+        self.conv1 = layers.Conv2D(128, (5, 5), activation='relu')
         self.pool1 = layers.MaxPool2D(2, 2)
         self.flatten = layers.Flatten()
-        self.dense1 = layers.Dense(128, activation='relu')
+        self.dense1 = layers.Dense(256, activation='relu')
         self.dense2 = layers.Dense(4, activation='linear')
         
-        self.build((None,24,21,3))
+        self.build((None,24,21,frames))
     
     def call(self, x):
         x = self.conv1(x)
@@ -29,7 +33,7 @@ class TokyoDrifter(keras.Model):
         return self.dense2(x)
 
 class DQN:
-    def __init__(self, model, env, gamma=0.95, optimizer=keras.optimizers.Adagrad(lr=0.001), lossfunc=keras.losses.MSE, exp_iterations=5, mem_size=128*1000, batch_size=128, expl_max=1.0, expl_min=0.01, expl_decay=0.95):
+    def __init__(self, model, env, gamma=0.95, optimizer=keras.optimizers.Adam(lr=0.001), lossfunc=keras.losses.MSE, frames=5, exp_iterations=5, mem_size=128*1000, batch_size=128, expl_max=1.0, expl_min=0.01, expl_decay=0.95, save_interval=30):
         self.model = model
         self.env = env
         self.memory = deque(maxlen=mem_size)
@@ -38,13 +42,16 @@ class DQN:
         self.optimizer = optimizer
         self.lossfunc = lossfunc
         self.exp_iterations = exp_iterations
+        self.frames=frames
+        self.save_interval = save_interval
         self.batch_size = batch_size
         self.expl_max = expl_max
         self.expl_min = expl_min
         self.expl_decay = expl_decay
         self.expl_rate = expl_max
         self.steps = 0
-        self.addReward = []
+        self.rewards = []
+        self.explorerates = []
 
     def action(self, q_values):
         if np.random.rand() < self.expl_rate:
@@ -70,6 +77,9 @@ class DQN:
         
         avg_loss = 0
         for i in range(self.exp_iterations):
+
+            self.update_weights()
+
             batch = random.choices(range(len(self.memory)), k=self.batch_size, weights=self.weights)
             x = np.array([self.memory[b][0] for b in batch])
             x2 = np.array([self.memory[b][4] for b in batch])
@@ -87,21 +97,15 @@ class DQN:
             self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
             avg_loss += tf.reduce_mean(current_loss)/self.exp_iterations
 
-            self.update_weights()
-
-            modx = self.model(x)
-            modx2 = self.model(x2)
-            for j in range(len(batch)):
-                v = self.memory[batch[j]][3]+np.max(modx2[j])*self.gamma if not self.memory[batch[j]][5] else self.memory[batch[j]][3]
-                q_val = modx[j][self.memory[batch[j]][2]]
-                self.weights[batch[j]] = np.power(q_val-v,2)
+            self.update_weights(batch)
 
         
         self.expl_rate = max(self.expl_min, self.expl_rate*self.expl_decay)
         tf.print("Average loss:",avg_loss)
 
-    def update_weights(self):
-        batch = random.sample(range(len(self.memory)), k=self.batch_size)
+    def update_weights(self, batch=None):
+        if not batch:
+            batch = random.sample(range(len(self.memory)), k=self.batch_size)
         x = np.array([self.memory[b][0] for b in batch])
         x2 = np.array([self.memory[b][4] for b in batch])
 
@@ -118,37 +122,100 @@ class DQN:
 
     def preprocess_image(self, x):
         x = tf.image.rgb_to_grayscale(x)
-        x = tf.image.resize(x,(24,24),method="bilinear")
-        x = tf.image.crop_to_bounding_box(x, 0,0,21,24)
+        x = tf.image.crop_to_bounding_box(x, 0,0,84,96)
+        x = tf.image.resize(x,(21,24),method="bilinear")
         x = tf.math.divide(x, 255)
         x = tf.math.subtract(1, x)
-        x = np.where(x<0.5,np.square(x), np.sqrt(x))*2-1
+        #x = np.where(x<0.5,np.square(x), np.sqrt(x))*2-1
         
         #print(x)
         #plt.imshow(np.squeeze(x), cmap='gray')
         #plt.show()
         return x
     
+    def stack_frames(self, state, new_state):
+        states = tf.split(state[0],self.frames,-1)
+        states.insert(0, new_state)
+        states.pop()
+
+        return tf.concat(states, -1)
+    
     def train(self):
         try:
+            self.starttime = time.time()
             while True:
-                episode_reward, steps_since_reward, self.rndint = 0,0,0
+                episode_reward, steps_since_reward = 0,0
                 
                 self.env.reset()
                 [self.env.step(self.drive(0)) for i in range(40)]
                 
                 s,_,_,_ = self.env.step(self.drive(0))
                 s = self.preprocess_image(s)
-                s = tf.concat((s,s,s), -1)
+                s = tf.concat([s]*self.frames, -1)
                 s = np.array(s[None, :], dtype=np.float32)
                 d = False
-                episode_memory = [[],[],[],[],[],[]]
+                episode_memory = []
+                while not d:
+                    self.steps += 1
+                    #self.env.render()
+
+                    q_values = self.model(s)
+                    a = self.action(q_values)
+
+                    sn, r, d, _ = self.env.step(self.drive(a))
+                    episode_reward += r
+
+                    r = np.clip(r, -1, 1)
+                    
+                    if r > 0:
+                        steps_since_reward = 0
+                    else:
+                        steps_since_reward += 1
+                    if steps_since_reward > 100:
+                        d = True
+
+                    sn = self.preprocess_image(sn)
+                    sn = self.stack_frames(s, sn)
+                    sn = np.array(sn[None, :], dtype=np.float32)
+
+                    q2 = np.max(self.model(sn))
+                    v = r+self.gamma*q2 if not d else r
+
+                    self.weights.append(np.absolute(q_values[0][a]-v))
+
+                    episode_memory.append([s[0],0,a,r,sn[0],d])
+
+                    s = sn
+
+                self.memory.extend(episode_memory)
+                print("Reward",episode_reward)
+                self.rewards.append(episode_reward)
+                self.explorerates.append(self.expl_rate)
+                self.experience_replay()
+        except KeyboardInterrupt:
+            self.time = (time.time() - self.starttime)/3600
+            self.done = datetime.datetime.now().strftime("%d-%m-%Y %H-%M-%S")
+            self.model.save_weights("model %s %.2f.h5" % (self.done, self.time))
+
+    def test(self):
+        try:
+            while True:
+                episode_reward, steps_since_reward = 0,0
+                
+                self.env.reset()
+                [self.env.step(self.drive(0)) for i in range(40)]
+                
+                s,_,_,_ = self.env.step(self.drive(0))
+                s = self.preprocess_image(s)
+                s = tf.concat([s]*self.frames, -1)
+                s = np.array(s[None, :], dtype=np.float32)
+                d = False
                 while not d:
                     self.steps += 1
                     self.env.render()
 
                     q_values = self.model(s)
-                    a = self.action(q_values)
+                    a = np.argmax(q_values)
 
                     sn, r, d, _ = self.env.step(self.drive(a))
                     episode_reward += r
@@ -157,53 +224,49 @@ class DQN:
                         steps_since_reward = 0
                     else:
                         steps_since_reward += 1
-                        r -= 2
-                    if steps_since_reward > 20:
+                    if steps_since_reward > 100:
                         d = True
-                        r -= 30
 
                     sn = self.preprocess_image(sn)
-                    sn = tf.concat((sn,tf.split(s,3,-1)[0][0],tf.split(s,3,-1)[1][0]),-1)
+                    sn = self.stack_frames(s, sn)
                     sn = np.array(sn[None, :], dtype=np.float32)
-
-                    q2 = np.max(self.model(sn))
-                    v = r+self.gamma*q2 if not d else r
-
-                    self.weights.append(np.absolute(q_values[0][a]-v))
-
-                    episode_memory[0].append(s[0])
-                    episode_memory[1].append(0)
-                    episode_memory[2].append(a)
-                    episode_memory[3].append(r)
-                    episode_memory[4].append(sn[0])
-                    episode_memory[5].append(d)
 
                     s = sn
 
-                self.memory.extend(np.transpose(episode_memory))
                 print("Reward",episode_reward)
-                self.experience_replay()
-                self.addReward.append(episode_reward)
         except KeyboardInterrupt:
-            self.model.save_weights("model-test.h5")
+            pass
 
     def plotReward(self):
-        plt.plot(self.addReward)
-        plt.ylabel('reward')
-        plt.xlabel('number of episodes')
-        plt.show()
+        avg_rewards = pd.DataFrame(self.rewards).rolling(25, min_periods=1).mean()
+        plt.plot(avg_rewards)
+        plt.ylabel('Rolling average reward')
+        plt.xlabel('Number of episodes')
+        plt.savefig('reward %s %.2f.png' % (self.done, self.time))
+
+        plt.clf()
+
+        plt.plot(self.explorerates)
+        plt.ylabel('Exploration rate')
+        plt.xlabel('Number of episodes')
+        plt.savefig('explore %s %.2f.png' % (self.done, self.time))
 
 
-model = TokyoDrifter()
 
-try:
-    model.load_weights("model-test.h5")
-except OSError:
-    pass
 
+test = False
+
+model = TokyoDrifter(frames=3)
 env = gym.make("CarRacing-v0")
 
-dqn = DQN(model, env, expl_max=0.0, expl_min=0.0, expl_decay=0.995, gamma=0.95, exp_iterations=0)
 
-dqn.train()
-dqn.plotReward()
+if test:
+    model.load_weights("model xxx.h5")
+
+dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=3)
+
+if test:
+    dqn.test()
+else:
+    dqn.train()
+    dqn.plotReward()
