@@ -286,7 +286,7 @@ env = gym.make("CarRacing-v0")
 if test:
     model.load_weights("model xxx.h5")
 
-dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=3, save_interval=5)
+dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=3, save_interval=20)
 
 if test:
     dqn.test()
