@@ -17,18 +17,21 @@ from tensorflow.keras import activations
 class TokyoDrifter(keras.Model):
     def __init__(self, frames=5, **kwargs):
         super(TokyoDrifter, self).__init__(**kwargs)
-        self.conv1 = layers.Conv2D(64, (5, 5))
+        self.conv1 = layers.Conv2D(128, (5, 5))
         self.batchnorm1 = layers.BatchNormalization()
         self.pool1 = layers.MaxPool2D(2, 2)
         self.conv2 = layers.Conv2D(128, (5, 5))
         self.batchnorm2 = layers.BatchNormalization()
         self.pool2 = layers.MaxPool2D(2, 2)
-        self.flatten = layers.Flatten()
-        self.dense1 = layers.Dense(512)
+        self.conv3 = layers.Conv2D(256, (3, 3))
         self.batchnorm3 = layers.BatchNormalization()
-        self.dense2 = layers.Dense(3, activation='linear')
+        self.pool3 = layers.MaxPool2D(2, 2)
+        self.flatten = layers.Flatten()
+        self.dense1 = layers.Dense(1024)
+        self.batchnorm4 = layers.BatchNormalization()
+        self.dense2 = layers.Dense(4, activation='linear')
         
-        self.build((None,24,21,frames))
+        self.build((None,48,42,frames))
     
     def call(self, x):
         x = self.conv1(x)
@@ -39,9 +42,13 @@ class TokyoDrifter(keras.Model):
         x = self.batchnorm2(x)
         x = activations.relu(x, alpha=0.01)
         x = self.pool2(x)
+        x = self.conv3(x)
+        x = self.batchnorm3(x)
+        x = activations.relu(x, alpha=0.01)
+        x = self.pool3(x)
         x = self.flatten(x)
         x = self.dense1(x)
-        x = self.batchnorm3(x)
+        x = self.batchnorm4(x)
         x = activations.relu(x, alpha=0.01)
         return self.dense2(x)
 
@@ -70,16 +77,18 @@ class DQN:
 
     def action(self, q_values):
         if np.random.rand() < self.expl_rate:
-            return random.randrange(0,3)
+            return random.randrange(0,4)
         return np.argmax(q_values)
 
     def drive(self, a):
         if a == 0: #Full gass
-            return [0.0,0.1,0.0]
+            return [0.0,0.2,0.0]
         elif a == 1: #Full gass og sving høyre
-            return [1.0,0.1,0.0]
+            return [1.0,0.2,0.0]
         elif a == 2: #Full gass og sving venstre
-            return [-1.0,0.1,0.0]
+            return [-1.0,0.2,0.0]
+        elif a == 3: #Full brems
+            return [0.0,0.0,0.5]
     
     def experience_replay(self):
         #if self.steps < self.batch_size:
@@ -137,7 +146,7 @@ class DQN:
     def preprocess_image(self, x):
         x = tf.image.rgb_to_grayscale(x)
         x = tf.image.crop_to_bounding_box(x, 0,0,84,96)
-        x = tf.image.resize(x,(21,24),method="bilinear")
+        x = tf.image.resize(x,(42,48),method="bilinear")
         x = tf.math.divide(x, 255)
         x = tf.math.subtract(1, x)
         #x = np.where(x<0.5,np.square(x), np.sqrt(x))*2-1
@@ -290,16 +299,16 @@ class DQN:
             pass
 
 
-test = True
+test = False
 
-model = TokyoDrifter(frames=3)
+model = TokyoDrifter(frames=4)
 env = gym.make("CarRacing-v0")
 
 
 if test:
     model.load_weights("model bestrapperalivev3.h5")
 
-dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=3, save_interval=5)
+dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=4, save_interval=5)
 
 if test:
     dqn.test()
