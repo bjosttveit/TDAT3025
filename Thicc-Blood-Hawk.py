@@ -53,7 +53,7 @@ class TokyoDrifter(keras.Model):
         return self.dense2(x)
 
 class DQN:
-    def __init__(self, model, env, gamma=0.95, optimizer=keras.optimizers.Adam(lr=0.0001), lossfunc=keras.losses.MSE, frames=5, exp_iterations=5, mem_size=128*1000, batch_size=128, expl_max=1.0, expl_min=0.01, expl_decay=0.95, save_interval=30):
+    def __init__(self, model, env, gamma=0.95, optimizer=keras.optimizers.Adam(lr=0.0001), lossfunc=keras.losses.MSE, frames=5, exp_iterations=5, mem_size=512*1000, batch_size=512, expl_max=1.0, expl_min=0.01, expl_decay=0.95, save_interval=30):
         self.model = model
         self.env = env
         self.memory = deque(maxlen=mem_size)
@@ -308,7 +308,7 @@ env = gym.make("CarRacing-v0")
 if test:
     model.load_weights("model bestrapperalivev3.h5")
 
-dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=4, save_interval=5)
+dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.998, gamma=0.95, exp_iterations=3, frames=4, save_interval=5)
 
 if test:
     dqn.test()

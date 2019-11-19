@@ -280,14 +280,14 @@ class DQN:
             pass
 
 
-test = False
+test = True
 
 model = TokyoDrifter(frames=3)
 env = gym.make("CarRacing-v0")
 
 
 if test:
-    model.load_weights("model 15-11-2019 11-59-19 3.00.h5")
+    model.load_weights("model champ-slow-lean.h5")
 
 dqn = DQN(model, env, expl_max=1.0, expl_min=0.01, expl_decay=0.995, gamma=0.95, exp_iterations=3, frames=3, save_interval=20)
 

@@ -255,6 +255,7 @@ class DQN:
     
     def test(self):
         try:
+            n = 1
             while True:
                 episode_reward, steps_since_reward = 0,0
                 
@@ -289,7 +290,8 @@ class DQN:
 
                     s = sn
 
-                print("Reward",episode_reward)
+                print(n,"Reward",episode_reward)
+                n += 1
         except KeyboardInterrupt:
             pass
 
